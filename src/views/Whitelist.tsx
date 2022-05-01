@@ -287,7 +287,7 @@ const App = ({ near }: { near: NEARType }) => {
                                     NEAR {near.totalSupply}/1000
                                 </p>
 
-                                <Mint defaultValue={2} maxValue={100} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
+                                <Mint defaultValue={2} maxValue={100 - near.userBalance} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
                             </div>
                         </div>:
                             <span></span>

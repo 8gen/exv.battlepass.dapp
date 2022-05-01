@@ -384,6 +384,10 @@ input::-webkit-inner-spin-button{
 
 .content__count--button{
     width: 100%;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
     text-align: center;
     margin-top: 2rem;
     padding: 1.4rem 2rem;
@@ -409,6 +413,10 @@ input::-webkit-inner-spin-button{
     justify-content: center;
     color: #ce1cf7;
     font-size: 3rem;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
     font-weight: 900;
     transition: .2s linear;
 }
