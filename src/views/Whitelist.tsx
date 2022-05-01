@@ -1,6 +1,11 @@
 import { Link, useParams } from 'react-router-dom';
 import moment from "moment-timezone"
-import {useEffect, useState} from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { parseNearAmount } from 'near-api-js/lib/utils/format';
+
+import { NEARType } from '../App';
+import axios from 'axios';
+
 
 
 enum Stage {
@@ -12,7 +17,7 @@ enum Stage {
 
 let formatNumber = (number: number) => number.toString().padStart(2, '0');
 const initTime = moment();
-const publicDate = "May 6, 2022 2:00 AM EST";
+const publicDate = "May 6, 2022 6:00 AM UTC";
 global.moment = moment;
 
 function guessStage(mode: string|undefined) {
@@ -41,7 +46,7 @@ function guessStage(mode: string|undefined) {
         whitelistOn = publicOn = initTime.clone().format();
         soldout = true;
     } else {
-        whitelistOn = "May 5, 2022 2:00 PM EST";
+        whitelistOn = "May 5, 2022 6:00 PM UTC";
     }
 
     const deadline_public = moment(publicOn).tz(tz);
@@ -96,15 +101,87 @@ function guessStage(mode: string|undefined) {
 }
 
 
-const App = () => {
+const Mint = ({ active, maxValue, balance, defaultValue, onClick }: {active: boolean, maxValue: number, balance: number, defaultValue: number, onClick: Function }) => {
+    const ref = useRef(null);
+    const [amount, setAmount] = useState(defaultValue);
+    if ( balance >= maxValue ) {
+        return (
+            <span>
+                <div className="content__count--box">
+                    <div className={`content__count--text`}>
+                        You already have {balance} of {maxValue} possible. Our respect!
+                    </div>
+                </div>
+            </span>
+        );
+
+    }
+    return (
+        <span>
+            <div className="content__count--box">
+                <div className={`content__count--inc${!active ? "--disabled" : ""}`} onClick={
+                    () => { 
+                        if(amount > 0) {
+                            setAmount(amount - 1)
+                        }
+                    }
+                }>-</div>
+                <input value={amount} ref={ref} disabled={!active} onChange={(event) => { let val = parseInt(event.target.value);setAmount(val >= 0 && val <= maxValue ? val : defaultValue) }} className='input content__count--input' />
+                <div className={`content__count--inc${!active ? "--disabled" : ""}`} onClick={
+                    () => {
+                        if(amount < maxValue) { 
+                            setAmount(amount + 1)
+                        }
+                    }
+                }>+</div>
+            </div>
+
+            <button className={`button second__button content__count--button`} onClick={(target) => { onClick(ref.current ? parseInt((ref.current as HTMLInputElement).value) : 0) }} >
+            {active ? "Mint" : "Connect wallet"}
+            </button>
+        </span>
+    );
+}
+
+
+const App = ({ near }: { near: NEARType }) => {
     const params = useParams();
     let [stage, updateStage] = useState(guessStage(params.mode));
     useEffect(() => {
-        setTimeout(() => {
+        let interval = setInterval(() => {
             let stage = guessStage(params.mode);
             updateStage(stage);
         }, 1000);
-    });
+        return () => {
+            clearInterval(interval);
+        };
+    }, [near.loaded, params.mode]);
+
+    if(!near.loaded) {
+        return <></>;
+    }
+
+    let onNEAR = async (amount: number) => {
+        if(near.authorized) {
+            let payload;
+            if(near.config.stage === "PRIVATE") {
+                let response = await axios.get(`/api/v1/sign/${near.currentUser?.accountId}`);
+                let { signature, permitted_amount } = response.data.data;
+                payload = { amount, signature, permitted_amount };
+            } else {
+                payload = { amount };
+            }
+            console.log(payload);
+            // @ts-ignore
+            await near.hall.sacrifice(
+                payload,
+                45_000_000_000_000 + 15_000_000_000_000 + 10_000_000_000_000 * amount,
+                parseNearAmount((17.5 * amount + 0.0125 * amount).toString())
+            );
+        } else {
+            near.walletConnection.requestSignIn(near.nearConfig.hallContractName, 'NEAR :: Exverse mint');
+        }
+    };
     return(
         <>
             <header className="header">
@@ -195,24 +272,9 @@ const App = () => {
                                 </div>
 
                                 <p className="content__count--text">
-                                    2 ETH minted 1/2000
+                                    1 ETH minted 1/2000
                                 </p>
-
-                                <div className="content__count--box">
-                                    <div className="content__count--inc minus">
-                                        -
-                                    </div>
-
-                                    <input className="input content__count--input" />
-
-                                    <div className="content__count--inc plus">
-                                        +
-                                    </div>
-                                </div>
-
-                                <button className="button second__button content__count--button">
-                                    Mint
-                                </button>
+                                <Mint defaultValue={1} maxValue={1} active={false} balance={0} onClick={() => {}} />
                             </div>
 
                             <div className="content__count">
@@ -222,24 +284,10 @@ const App = () => {
                                 </div>
 
                                 <p className="content__count--text">
-                                    2 NEAR minted 1/2000
+                                    NEAR {near.totalSupply}/1000
                                 </p>
 
-                                <div className="content__count--box">
-                                    <div className="content__count--inc minus">
-                                        -
-                                    </div>
-
-                                    <input className="input content__count--input" />
-
-                                    <div className="content__count--inc plus">
-                                        +
-                                    </div>
-                                </div>
-
-                                <button className="button second__button content__count--button">
-                                    Mint
-                                </button>
+                                <Mint defaultValue={2} maxValue={100} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
                             </div>
                         </div>:
                             <span></span>

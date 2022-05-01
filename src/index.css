@@ -146,7 +146,7 @@ input::-webkit-inner-spin-button{
     margin-right: 4rem;
 }
 
-.second__button{
+.second__button {
     border-radius: 50px;
     padding: 1rem 3.7rem;
     color: #fff;
@@ -398,7 +398,7 @@ input::-webkit-inner-spin-button{
     justify-content: center;
 }
 
-.content__count--inc{
+.content__count--inc, .content__count--inc--disabled {
     width: 50px;
     height: 50px;
     border-radius: 50%;
@@ -418,7 +418,13 @@ input::-webkit-inner-spin-button{
     color: #fff;
 }
 
-.content__count--input{
+.content__count--inc--disabled {
+    border: 2px solid #823293;
+    color: #823293;
+}
+
+
+.content__count--input {
     border: 1px solid #494557;
     background: none;
     margin: 0rem 1.5rem;
