@@ -1,11 +1,12 @@
+import axios from 'axios';
+import Web3 from 'web3';
+import { useEffect, useRef, useState } from 'react';
+import { useWeb3Context } from 'web3-react'
 import { Link, useParams } from 'react-router-dom';
 import moment from "moment-timezone"
-import { useEffect, useRef, useState } from 'react';
 import { parseNearAmount } from 'near-api-js/lib/utils/format';
 
 import { NEARType } from '../App';
-import axios from 'axios';
-
 
 
 enum Stage {
@@ -14,10 +15,10 @@ enum Stage {
     Open,
     SoldOut,
 }
-
+const web3 = new Web3(Web3.givenProvider);
 let formatNumber = (number: number) => number.toString().padStart(2, '0');
 const initTime = moment();
-const publicDate = "May 6, 2022 6:00 AM UTC";
+const publicDate = "May 7, 2022 01:00 AM UTC"; 
 global.moment = moment;
 
 function guessStage(mode: string|undefined) {
@@ -46,7 +47,7 @@ function guessStage(mode: string|undefined) {
         whitelistOn = publicOn = initTime.clone().format();
         soldout = true;
     } else {
-        whitelistOn = "May 5, 2022 6:00 PM UTC";
+        whitelistOn = "May 6, 2022 01:00 PM UTC";
     }
 
     const deadline_public = moment(publicOn).tz(tz);
@@ -101,8 +102,7 @@ function guessStage(mode: string|undefined) {
 }
 
 
-const Mint = ({ active, maxValue, balance, defaultValue, onClick }: {active: boolean, maxValue: number, balance: number, defaultValue: number, onClick: Function }) => {
-    const ref = useRef(null);
+const Mint = ({ error, active, maxValue, balance, defaultValue, onClick }: {error?: string, active: boolean, maxValue: number, balance: number, defaultValue: number, onClick: Function }) => { const ref = useRef(null);
     const [amount, setAmount] = useState(defaultValue);
     if ( balance >= maxValue ) {
         return (
@@ -137,7 +137,15 @@ const Mint = ({ active, maxValue, balance, defaultValue, onClick }: {active: boo
             </div>
 
             <button className={`button second__button content__count--button`} onClick={(target) => { onClick(ref.current ? parseInt((ref.current as HTMLInputElement).value) : 0) }} >
-            {active ? "Mint" : "Connect wallet"}
+            {(() => {
+                if(error) {
+                    return error;
+                }
+                if(active) {
+                    return "Mint"
+                }
+                return "Connect wallet"
+            })()}
             </button>
         </span>
     );
@@ -145,8 +153,50 @@ const Mint = ({ active, maxValue, balance, defaultValue, onClick }: {active: boo
 
 
 const App = ({ near }: { near: NEARType }) => {
+    const eth = useWeb3Context();
     const params = useParams();
     let [stage, updateStage] = useState(guessStage(params.mode));
+    let [ethTotalSupply, setEthTotalSupply] = useState(0);
+    let [ethUserBalance, setEthUserBalance] = useState(0);
+    let [nearTotalSupply, setNearTotalSupply] = useState(0);
+
+    useEffect(() => {
+        eth.setFirstValidConnector(['MetaMask']) // Or on your choice
+    }, [eth])
+
+    useEffect(() => {
+        if(!near.loaded) return;
+        let refresh = async () => {
+            let [ethUserBalance, ethTotalSupply] = await Promise.all([
+                near.ethContract.methods.balanceOf(eth.account).call(),
+                near.ethContract.methods.totalSupply().call(),
+            ]);
+            setEthTotalSupply(ethTotalSupply);
+            setEthUserBalance(ethUserBalance);
+        };
+        let interval = setInterval(refresh, 5000);
+        refresh();
+        return () => {
+            clearInterval(interval);
+        };
+    }, [near.loaded, eth.account]);
+
+    useEffect(() => {
+        if(!near.loaded) return;
+        let refresh = async () => {
+            let [totalSupply] = await Promise.all([
+                //@ts-ignore
+                near.nft.nft_total_supply(),
+            ]);
+            setNearTotalSupply(totalSupply);
+        };
+        let interval = setInterval(refresh, 5000);
+        refresh();
+        return () => {
+            clearInterval(interval);
+        };
+    }, [near.loaded]);
+
     useEffect(() => {
         let interval = setInterval(() => {
             let stage = guessStage(params.mode);
@@ -161,11 +211,38 @@ const App = ({ near }: { near: NEARType }) => {
         return <></>;
     }
 
+    const onETH = async (amount: number) => {
+        // @ts-ignore
+        const accounts = await web3.eth.requestAccounts();
+        if(accounts) {
+            web3.eth.defaultAccount = accounts[0];
+            let method;
+            let cost = web3.utils.toWei((amount * 0.1).toString());
+            // @ts-ignore
+            if(near.config.stage === "PRIVATE") {
+                let response = await axios.get(`/api/v1/ethsign/${accounts[0]}`);
+                let { signature } = response.data.data;
+                method = near.ethContract.methods.whitelistMint(amount, signature);
+            } else {
+                method = near.ethContract.methods.mint(amount);
+            }
+            let response = await method
+                .send({
+                    from: web3.eth.defaultAccount,
+                    gas: 150_000,
+                    value: cost,
+                });
+            console.log(response);
+            console.log("try to mint");
+        } else {
+        }
+    };
+
     let onNEAR = async (amount: number) => {
         if(near.authorized) {
             let payload;
             if(near.config.stage === "PRIVATE") {
-                let response = await axios.get(`/api/v1/sign/${near.currentUser?.accountId}`);
+                let response = await axios.get(`/api/v1/sign/${near.currentUser.accountId}`);
                 let { signature, permitted_amount } = response.data.data;
                 payload = { amount, signature, permitted_amount };
             } else {
@@ -176,7 +253,7 @@ const App = ({ near }: { near: NEARType }) => {
             await near.hall.sacrifice(
                 payload,
                 45_000_000_000_000 + 15_000_000_000_000 + 10_000_000_000_000 * amount,
-                parseNearAmount((17.5 * amount + 0.0125 * amount).toString())
+                parseNearAmount((17.5 * amount + 0.0125 * amount + 0.1).toString())
             );
         } else {
             near.walletConnection.requestSignIn(near.nearConfig.hallContractName, 'NEAR :: Exverse mint');
@@ -272,9 +349,9 @@ const App = ({ near }: { near: NEARType }) => {
                                 </div>
 
                                 <p className="content__count--text">
-                                    1 ETH minted 1/2000
+                                    ETH {ethTotalSupply}/2000
                                 </p>
-                                <Mint defaultValue={1} maxValue={1} active={false} balance={0} onClick={() => {}} />
+                                <Mint error={(window as any).ethereum?undefined:"Metamask required"} defaultValue={1} maxValue={1} active={eth.active} balance={ethUserBalance} onClick={onETH} />
                             </div>
 
                             <div className="content__count">
@@ -284,10 +361,10 @@ const App = ({ near }: { near: NEARType }) => {
                                 </div>
 
                                 <p className="content__count--text">
-                                    NEAR {near.totalSupply}/1000
+                                    NEAR {nearTotalSupply}/1000
                                 </p>
 
-                                <Mint defaultValue={2} maxValue={100 - near.userBalance} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
+                                <Mint defaultValue={2} maxValue={2} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
                             </div>
                         </div>:
                             <span></span>

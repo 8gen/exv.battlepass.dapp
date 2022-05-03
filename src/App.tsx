@@ -1,18 +1,26 @@
 import { useState, createContext, useEffect } from "react";
 import { Route, Routes, Navigate } from "react-router-dom";
+import { Connectors } from 'web3-react'
+import Web3Provider from 'web3-react'
+import Web3 from 'web3';
+
 // @ts-ignore
 import * as nearAPI from 'near-api-js';
 
+import ethAbi from './abi.json';
 import Whitelist from "./views/Whitelist";
 import "./index.css";
 import { getConfig } from './config';
 
 const NEARContext = createContext({});
+const { InjectedConnector } = Connectors
+const MetaMask = new InjectedConnector({ supportedNetworks: [1, 4] })
+const connectors = { MetaMask }
+
 
 export type NEARType = { 
     hall: nearAPI.Contract,
     nft: nearAPI.Contract,
-    totalSupply: number,
     userBalance: number,
     config: {
         stage: "OPEN" | "PRIVATE" | "SOON"
@@ -20,7 +28,11 @@ export type NEARType = {
     currentUser: {
         accountId: any, 
         balance: string,
-    } | undefined,
+    },
+    ethConfig: {
+        contract: string,
+    },
+    ethContract: any,
     nearConfig: {
         networkId: string,
         nodeUrl: string,
@@ -31,27 +43,42 @@ export type NEARType = {
     },
     walletConnection: nearAPI.WalletConnection,
     loaded: true,
-    authorized: boolean,
+    authorized: true,
+} | {
+    hall: nearAPI.Contract,
+    nft: nearAPI.Contract,
+    userBalance: 0,
+    config: {
+        stage: "OPEN" | "PRIVATE" | "SOON"
+    },
+    currentUser: undefined,
+    ethConfig: {
+        contract: string,
+    },
+    ethContract: any,
+    nearConfig: {
+        networkId: string,
+        nodeUrl: string,
+        nftContractName: string,
+        hallContractName: string,
+        walletUrl: string,
+        helperUrl: string,
+    },
+    walletConnection: nearAPI.WalletConnection,
+    loaded: true,
+    authorized: false,
 } | {
     loaded: false,
-    authorized: boolean,
+    authorized: false,
 };
 
-async function initContract(): Promise<NEARType> {
-    const nearConfig = getConfig(process.env.NEAR_ENV || 'testnet');
+async function initNEARContract(): Promise<NEARType> {
+    const _config = getConfig(process.env.NEAR_ENV || 'testnet');
+    const nearConfig = _config.near;
+    const ethConfig = _config.eth;
     const keyStore = new nearAPI.keyStores.BrowserLocalStorageKeyStore();
     const near = await nearAPI.connect({ keyStore, ...nearConfig, headers: {} });
     const walletConnection = new nearAPI.WalletConnection(near, "exv");
-    let currentUser;
-    if (walletConnection.getAccountId()) {
-        currentUser = {
-            accountId: walletConnection.getAccountId(),
-            balance: (await walletConnection.account().state()).amount,
-        };
-    }
-    console.log("we have user data");
-    console.log(currentUser);
-
     const nft = new nearAPI.Contract(
         walletConnection.account(),
         nearConfig.nftContractName,
@@ -60,7 +87,6 @@ async function initContract(): Promise<NEARType> {
             viewMethods: ['nft_total_supply', 'nft_supply_for_owner'],
         }
     );
-
     const hall = new nearAPI.Contract(
         walletConnection.account(),
         nearConfig.hallContractName,
@@ -71,39 +97,52 @@ async function initContract(): Promise<NEARType> {
     );
     let config;
     let status;
-    let totalSupply = 0;
-    let userBalance = 0;
+    const web3 = new Web3(Web3.givenProvider);
+    //@ts-ignore
+    let ethContract = new web3.eth.Contract(ethAbi, ethConfig.contract);
+    let base = {
+        hall,
+        nft,
+        nearConfig,
+        ethConfig,
+        ethContract,
+        walletConnection,
+    };
+    console.log(ethContract.methods.totalSupply());
     if (walletConnection.isSignedIn()) {
-        [status, totalSupply] = await Promise.all([
+        let currentUser = {
+            accountId: walletConnection.getAccountId(),
+            balance: (await walletConnection.account().state()).amount,
+        };
+        [status] = await Promise.all([
             // @ts-ignore
             hall.status({ account_id: currentUser?.accountId }),
             // @ts-ignore
-            nft.nft_total_supply(),
         ]);
-        userBalance = status.sold;
-        config = status.config;
+        return { 
+            userBalance: status.sold,
+            config: status.config,
+            currentUser,
+            authorized: true,
+            loaded: true,
+            ...base,
+        };
     } else {
         // @ts-ignore
-        [config, totalSupply] = await Promise.all([
+        [config] = await Promise.all([
             // @ts-ignore
             hall.config(),
             // @ts-ignore
-            nft.nft_total_supply(),
         ]);
+        return { 
+            userBalance: 0,
+            config,
+            currentUser: undefined,
+            authorized: false,
+            loaded: true,
+            ...base,
+        };
     }
-    console.log(config);
-    return { 
-        hall,
-        nft,
-        config,
-        totalSupply,
-        userBalance,
-        currentUser,
-        nearConfig,
-        walletConnection,
-        authorized: walletConnection.isSignedIn(),
-        loaded: true 
-    };
 }
 
 
@@ -111,12 +150,11 @@ export default function App() {
     const [near, setNear] = useState({ authorized: false, loaded: false } as NEARType);
 
     useEffect(() => {
-        initContract().then((context) => {
-            setNear(context);
-        });
+        initNEARContract().then(setNear);
     }, []);
 
     return (
+    <Web3Provider connectors={connectors} libraryName={'ethers.js'}>
         <NEARContext.Provider value={near}>
             <Routes>
                 <Route path="/" element={<Whitelist near={near} />} />
@@ -124,5 +162,6 @@ export default function App() {
                 <Route path="*" element={<Navigate replace to="/" />} />
             </Routes>
         </NEARContext.Provider>
+    </Web3Provider>
     );
 }
