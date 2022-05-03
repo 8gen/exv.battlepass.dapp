@@ -166,7 +166,8 @@ input::-webkit-inner-spin-button{
 }
 
 .content__inner{
-    background: #1b162d;
+    background: rgb(19,9,50);
+    background: linear-gradient(0deg, rgb(19 11 44) 0%, rgb(16 6 46) 100%);
     padding: 0rem 3rem;
     border-top: 6px solid #d412f6;
     width: 100%;
