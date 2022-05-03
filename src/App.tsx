@@ -108,7 +108,6 @@ async function initNEARContract(): Promise<NEARType> {
         ethContract,
         walletConnection,
     };
-    console.log(ethContract.methods.totalSupply());
     if (walletConnection.isSignedIn()) {
         let currentUser = {
             accountId: walletConnection.getAccountId(),

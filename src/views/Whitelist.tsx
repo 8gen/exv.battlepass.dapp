@@ -136,7 +136,7 @@ const Mint = ({ error, active, maxValue, balance, defaultValue, onClick }: {erro
                 }>+</div>
             </div>
 
-            <button className={`button second__button content__count--button`} onClick={(target) => { onClick(ref.current ? parseInt((ref.current as HTMLInputElement).value) : 0) }} >
+            <button className={`button second__button content__count--button`} onClick={(target) => { error === undefined && onClick(ref.current ? parseInt((ref.current as HTMLInputElement).value) : 0) }} >
             {(() => {
                 if(error) {
                     return error;
@@ -159,6 +159,8 @@ const App = ({ near }: { near: NEARType }) => {
     let [ethTotalSupply, setEthTotalSupply] = useState(0);
     let [ethUserBalance, setEthUserBalance] = useState(0);
     let [nearTotalSupply, setNearTotalSupply] = useState(0);
+    let [permittedEthAddress, setPermittedEthAddress] = useState(false);
+    let [permittedNearAddress, setPermittedNearAddress] = useState(false);
 
     useEffect(() => {
         eth.setFirstValidConnector(['MetaMask']) // Or on your choice
@@ -167,14 +169,23 @@ const App = ({ near }: { near: NEARType }) => {
     useEffect(() => {
         if(!near.loaded) return;
         let refresh = async () => {
-            let [ethUserBalance, ethTotalSupply] = await Promise.all([
-                near.ethContract.methods.balanceOf(eth.account).call(),
-                near.ethContract.methods.totalSupply().call(),
-            ]);
+            let apiResponse, ethUserBalance, ethTotalSupply;
+            if(!eth.account) {
+                [ethTotalSupply] = await Promise.all([
+                    near.ethContract.methods.totalSupply().call(),
+                ]);
+            } else {
+                [apiResponse, ethUserBalance, ethTotalSupply] = await Promise.all([
+                    axios.get(`/api/v1/ethsign/${eth.account}`),
+                    near.ethContract.methods.balanceOf(eth.account).call(),
+                    near.ethContract.methods.totalSupply().call(),
+                ]);
+                setPermittedEthAddress(apiResponse.status===200);
+                setEthUserBalance(ethUserBalance);
+            }
             setEthTotalSupply(ethTotalSupply);
-            setEthUserBalance(ethUserBalance);
         };
-        let interval = setInterval(refresh, 5000);
+        let interval = setInterval(refresh, 10000);
         refresh();
         return () => {
             clearInterval(interval);
@@ -184,14 +195,24 @@ const App = ({ near }: { near: NEARType }) => {
     useEffect(() => {
         if(!near.loaded) return;
         let refresh = async () => {
-            let [totalSupply] = await Promise.all([
-                //@ts-ignore
-                near.nft.nft_total_supply(),
-            ]);
+            let apiResponse, totalSupply;
+            if(near.currentUser) {
+                [apiResponse, totalSupply] = await Promise.all([
+                    axios.get(`/api/v1/sign/${near.currentUser.accountId}`),
+                    //@ts-ignore
+                    near.nft.nft_total_supply(),
+                ]);
+                setPermittedNearAddress(apiResponse.status===200);
+            } else {
+                [totalSupply] = await Promise.all([
+                    //@ts-ignore
+                    near.nft.nft_total_supply(),
+                ]);
+            }
             setNearTotalSupply(totalSupply);
         };
-        let interval = setInterval(refresh, 5000);
         refresh();
+        let interval = setInterval(refresh, 10000);
         return () => {
             clearInterval(interval);
         };
@@ -218,8 +239,7 @@ const App = ({ near }: { near: NEARType }) => {
             web3.eth.defaultAccount = accounts[0];
             let method;
             let cost = web3.utils.toWei((amount * 0.1).toString());
-            // @ts-ignore
-            if(near.config.stage === "PRIVATE") {
+            if(stage.stage === Stage.Whitelist) {
                 let response = await axios.get(`/api/v1/ethsign/${accounts[0]}`);
                 let { signature } = response.data.data;
                 method = near.ethContract.methods.whitelistMint(amount, signature);
@@ -232,23 +252,20 @@ const App = ({ near }: { near: NEARType }) => {
                     gas: 150_000,
                     value: cost,
                 });
-            console.log(response);
-            console.log("try to mint");
         } else {
         }
     };
 
-    let onNEAR = async (amount: number) => {
+    const onNEAR = async (amount: number) => {
         if(near.authorized) {
             let payload;
-            if(near.config.stage === "PRIVATE") {
+            if(stage.stage === Stage.Whitelist) {
                 let response = await axios.get(`/api/v1/sign/${near.currentUser.accountId}`);
                 let { signature, permitted_amount } = response.data.data;
                 payload = { amount, signature, permitted_amount };
             } else {
                 payload = { amount };
             }
-            console.log(payload);
             // @ts-ignore
             await near.hall.sacrifice(
                 payload,
@@ -351,7 +368,15 @@ const App = ({ near }: { near: NEARType }) => {
                                 <p className="content__count--text">
                                     ETH {ethTotalSupply}/2000
                                 </p>
-                                <Mint error={(window as any).ethereum?undefined:"Metamask required"} defaultValue={1} maxValue={1} active={eth.active} balance={ethUserBalance} onClick={onETH} />
+                                <Mint error={(() => {
+                                    if(!(window as any).ethereum) {
+                                        return "Metamask required";
+                                    }
+                                    if(stage.stage === Stage.Whitelist && !permittedEthAddress) {
+                                        return "Not permitted 😔";
+                                    }
+                                    return undefined;
+                                })()} defaultValue={1} maxValue={1} active={eth.active} balance={ethUserBalance} onClick={onETH} />
                             </div>
 
                             <div className="content__count">
@@ -364,7 +389,12 @@ const App = ({ near }: { near: NEARType }) => {
                                     NEAR {nearTotalSupply}/1000
                                 </p>
 
-                                <Mint defaultValue={2} maxValue={2} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
+                                <Mint error={(() => {
+                                    if(stage.stage === Stage.Whitelist && !permittedNearAddress) {
+                                        return "Not permitted 😔";
+                                    }
+                                    return undefined;
+                                })()} defaultValue={2} maxValue={2} active={near.authorized} balance={near.userBalance} onClick={onNEAR} />
                             </div>
                         </div>:
                             <span></span>
