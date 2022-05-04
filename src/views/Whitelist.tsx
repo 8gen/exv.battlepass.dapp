@@ -136,7 +136,7 @@ const Mint = ({ error, active, maxValue, balance, defaultValue, onClick }: {erro
                 }>+</div>
             </div>
 
-            <button className={`button second__button content__count--button`} onClick={(target) => { error === undefined && onClick(ref.current ? parseInt((ref.current as HTMLInputElement).value) : 0) }} >
+            <button className={`button second__button content__count--button`} onClick={(target) => {onClick(ref.current ? parseInt((ref.current as HTMLInputElement).value) : 0) }} >
             {(() => {
                 if(error) {
                     return error;
@@ -161,9 +161,11 @@ const App = ({ near }: { near: NEARType }) => {
     let [nearTotalSupply, setNearTotalSupply] = useState(0);
     let [permittedEthAddress, setPermittedEthAddress] = useState(false);
     let [permittedNearAddress, setPermittedNearAddress] = useState(false);
+    let [loadingNear, setLoaderNear] = useState(true);
+    let [loadingEth, setLoaderEth] = useState(true);
 
     useEffect(() => {
-        eth.setFirstValidConnector(['MetaMask']) // Or on your choice
+        // eth.setFirstValidConnector(['MetaMask']) // Or on your choice
     }, [eth])
 
     useEffect(() => {
@@ -182,6 +184,7 @@ const App = ({ near }: { near: NEARType }) => {
                 ]);
                 setPermittedEthAddress(apiResponse.status===200);
                 setEthUserBalance(ethUserBalance);
+                setLoaderEth(false);
             }
             setEthTotalSupply(ethTotalSupply);
         };
@@ -203,6 +206,7 @@ const App = ({ near }: { near: NEARType }) => {
                     near.nft.nft_total_supply(),
                 ]);
                 setPermittedNearAddress(apiResponse.status===200);
+                setLoaderNear(false);
             } else {
                 [totalSupply] = await Promise.all([
                     //@ts-ignore
@@ -232,10 +236,15 @@ const App = ({ near }: { near: NEARType }) => {
         return <></>;
     }
 
-    const onETH = async (amount: number) => {
+    const onETHActivate = async () => {
+        eth.setFirstValidConnector(['MetaMask']) // Or on your choice
         // @ts-ignore
         const accounts = await web3.eth.requestAccounts();
-        if(accounts) {
+    };
+
+    const onETH = async (amount: number) => {
+        const accounts = await web3.eth.requestAccounts();
+        if(accounts && accounts.length > 0) {
             web3.eth.defaultAccount = accounts[0];
             let method;
             let cost = web3.utils.toWei((amount * 0.1).toString());
@@ -369,14 +378,17 @@ const App = ({ near }: { near: NEARType }) => {
                                     ETH {ethTotalSupply}/2000
                                 </p>
                                 <Mint error={(() => {
-                                    if(!(window as any).ethereum) {
-                                        return "Metamask required";
+                                    if(!(window as any).ethereum || !eth.active) {
+                                        return "Metamask is required 🦊";
+                                    }
+                                    if (loadingEth) {
+                                        return "Loading ... 💤";
                                     }
                                     if(stage.stage === Stage.Whitelist && !permittedEthAddress) {
                                         return "Not permitted 😔";
                                     }
                                     return undefined;
-                                })()} defaultValue={1} maxValue={1} active={eth.active} balance={ethUserBalance} onClick={onETH} />
+                                })()} defaultValue={1} maxValue={1} active={eth.active} balance={ethUserBalance} onClick={eth.active ? onETH : onETHActivate }/>
                             </div>
 
                             <div className="content__count">
@@ -390,6 +402,10 @@ const App = ({ near }: { near: NEARType }) => {
                                 </p>
 
                                 <Mint error={(() => {
+                                    if (!near.authorized) return;
+                                    if (loadingNear) {
+                                        return "Loading ... 💤";
+                                    }
                                     if(stage.stage === Stage.Whitelist && !permittedNearAddress) {
                                         return "Not permitted 😔";
                                     }
